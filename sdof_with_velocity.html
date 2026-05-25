@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDOF Control System Simulation</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f5f7fb;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+            color: #1a202c;
+        }
+        .subtitle {
+            color: #718096;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 25px;
+        }
+        .control-panel {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            height: fit-content;
+        }
+        .control-group {
+            margin-bottom: 20px;
+        }
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #4a5568;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+        .value-display {
+            font-family: monospace;
+            font-size: 13px;
+            color: #2b6cb0;
+            float: right;
+        }
+        .system-params {
+            font-size: 12px;
+            color: #4a5568;
+            background: #edf2f7;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 15px;
+            line-height: 1.5;
+        }
+        .charts-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* Section header bar that groups a displacement+velocity pair */
+        .chart-section-header {
+            font-size: 13px;
+            font-weight: 700;
+            color: #2d3748;
+            background: #edf2f7;
+            border-left: 4px solid #3182ce;
+            padding: 6px 10px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+        }
+        .chart-section-header.forced {
+            border-left-color: #319795;
+        }
+        .chart-section-header.poles {
+            border-left-color: #e53e3e;
+        }
+
+        /* Paired chart row: displacement left, velocity right */
+        .chart-pair {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            background: #fff;
+            padding: 12px 15px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            height: 220px;
+        }
+        .chart-wrapper h3 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        /* Eigenvalue chart spans the full width */
+        .chart-wrapper.full-width {
+            height: 240px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>SDOF Control System Visualiser</h1>
+    <div class="subtitle">Time-domain and eigenvalue tracking for displacement, velocity, and acceleration feedback.</div>
+
+    <div class="grid-layout">
+        <div class="control-panel">
+            <div class="control-group">
+                <label>Displacement Gain (g_d) <span id="gd-val" class="value-display">0</span></label>
+                <input type="range" id="slider-gd" min="0" max="5000000" step="50000" value="0">
+            </div>
+
+            <div class="control-group">
+                <label>Velocity Gain (g_v) <span id="gv-val" class="value-display">0</span></label>
+                <input type="range" id="slider-gv" min="0" max="2000" step="10" value="0">
+            </div>
+
+            <div class="control-group">
+                <label>Acceleration Gain (g_a) <span id="ga-val" class="value-display">0</span></label>
+                <input type="range" id="slider-ga" min="0" max="50" step="0.5" value="0">
+            </div>
+
+            <div class="system-params">
+                <strong>Base System Constants:</strong><br>
+                Mass (m): 5 kg<br>
+                Stiffness (k): 2.2 × 10⁶ N/m<br>
+                Damping (c): 20 Ns/m<br>
+                Natural Freq (&omega;<sub>n</sub>): ~663.3 rad/s (~105.6 Hz)
+            </div>
+        </div>
+
+        <div class="charts-panel">
+
+            <!-- ── Initial Condition: Displacement + Velocity ── -->
+            <div class="chart-section-header">
+                Initial Condition Response &mdash; x₀ = 0.1 m, v₀ = 0 m/s
+            </div>
+            <div class="chart-pair">
+                <div class="chart-wrapper">
+                    <h3>Displacement (m)</h3>
+                    <canvas id="chart-ic-disp"></canvas>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Velocity (m/s)</h3>
+                    <canvas id="chart-ic-vel"></canvas>
+                </div>
+            </div>
+
+            <!-- ── Eigenvalue Map ── -->
+            <div class="chart-section-header poles">
+                Eigenvalue Map &mdash; Complex S-Plane
+            </div>
+            <div class="chart-wrapper full-width">
+                <canvas id="chart-poles"></canvas>
+            </div>
+
+            <!-- ── Forced: Displacement + Velocity ── -->
+            <div class="chart-section-header forced">
+                Persistent Harmonic Excitation &mdash; Driven at Open-Loop Resonance, F = 12 000 N
+            </div>
+            <div class="chart-pair">
+                <div class="chart-wrapper">
+                    <h3>Displacement (m)</h3>
+                    <canvas id="chart-forced-disp"></canvas>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Velocity (m/s)</h3>
+                    <canvas id="chart-forced-vel"></canvas>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    // ── System Constants ──────────────────────────────────────────
+    const m   = 5;
+    const k   = 2200000;
+    const c   = 20;
+    const w_res = Math.sqrt(k / m); // open-loop resonance (~663.325 rad/s)
+
+    // ── DOM ───────────────────────────────────────────────────────
+    const sGd = document.getElementById('slider-gd');
+    const sGv = document.getElementById('slider-gv');
+    const sGa = document.getElementById('slider-ga');
+    const vGd = document.getElementById('gd-val');
+    const vGv = document.getElementById('gv-val');
+    const vGa = document.getElementById('ga-val');
+
+    // ── Chart Instances ───────────────────────────────────────────
+    let chartICDisp, chartICVel, chartPoles, chartForcedDisp, chartForcedVel;
+
+    // ── Shared chart option factory ───────────────────────────────
+    function lineOpts(yLabel) {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { type: 'linear', title: { display: true, text: 'Time (s)', font: { size: 10 } } },
+                y: { title: { display: true, text: yLabel,          font: { size: 10 } } }
+            },
+            plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } }
+        };
+    }
+
+    function initCharts() {
+        // IC – Displacement
+        chartICDisp = new Chart(document.getElementById('chart-ic-disp').getContext('2d'), {
+            type: 'line',
+            data: { datasets: [
+                { label: 'Open-Loop',   data: [], borderColor: '#cbd5e0', borderWidth: 1.5, pointRadius: 0, fill: false },
+                { label: 'Closed-Loop', data: [], borderColor: '#3182ce', borderWidth: 2,   pointRadius: 0, fill: false }
+            ]},
+            options: lineOpts('Displacement (m)')
+        });
+
+        // IC – Velocity
+        chartICVel = new Chart(document.getElementById('chart-ic-vel').getContext('2d'), {
+            type: 'line',
+            data: { datasets: [
+                { label: 'Open-Loop',   data: [], borderColor: '#cbd5e0', borderWidth: 1.5, pointRadius: 0, fill: false },
+                { label: 'Closed-Loop', data: [], borderColor: '#805ad5', borderWidth: 2,   pointRadius: 0, fill: false }
+            ]},
+            options: lineOpts('Velocity (m/s)')
+        });
+
+        // Poles
+        chartPoles = new Chart(document.getElementById('chart-poles').getContext('2d'), {
+            type: 'scatter',
+            data: { datasets: [
+                { label: 'Open-Loop Poles',   data: [], backgroundColor: '#e53e3e', pointRadius: 6, pointStyle: 'triangle' },
+                { label: 'Closed-Loop Poles', data: [], backgroundColor: '#3182ce', pointRadius: 6, pointStyle: 'circle'   }
+            ]},
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                scales: {
+                    x: { title: { display: true, text: 'Real Axis (\u03C3)',       font: { size: 10 } }, min: -400, max: 50   },
+                    y: { title: { display: true, text: 'Imaginary Axis (j\u03C9)', font: { size: 10 } }, min: -1200, max: 1200 }
+                },
+                plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } }
+            }
+        });
+
+        // Forced – Displacement
+        chartForcedDisp = new Chart(document.getElementById('chart-forced-disp').getContext('2d'), {
+            type: 'line',
+            data: { datasets: [
+                { label: 'Open-Loop',   data: [], borderColor: '#cbd5e0', borderWidth: 1.5, pointRadius: 0, fill: false },
+                { label: 'Closed-Loop', data: [], borderColor: '#319795', borderWidth: 2,   pointRadius: 0, fill: false }
+            ]},
+            options: lineOpts('Displacement (m)')
+        });
+
+        // Forced – Velocity
+        chartForcedVel = new Chart(document.getElementById('chart-forced-vel').getContext('2d'), {
+            type: 'line',
+            data: { datasets: [
+                { label: 'Open-Loop',   data: [], borderColor: '#cbd5e0', borderWidth: 1.5, pointRadius: 0, fill: false },
+                { label: 'Closed-Loop', data: [], borderColor: '#dd6b20', borderWidth: 2,   pointRadius: 0, fill: false }
+            ]},
+            options: lineOpts('Velocity (m/s)')
+        });
+    }
+
+    // ── Analytical Solver – returns { disp: [{x,y}], vel: [{x,y}] } ──
+    function solveSystem(M, C, K, x0, v0, duration, step, forceAmplitude = 0, forceFreq = 0) {
+        const disp = [];
+        const vel  = [];
+
+        if (M <= 0.01) M = 0.01;
+        if (K <= 0)    K = 0.1;
+        if (C < 0)     C = 0;
+
+        const wn   = Math.sqrt(K / M);
+        const zeta = C / (2 * Math.sqrt(K * M));
+
+        if (forceAmplitude === 0) {
+            // ── Free Vibration ────────────────────────────────────
+            if (zeta < 1) {
+                // Underdamped
+                const wd = wn * Math.sqrt(1 - zeta * zeta);
+                const A  = x0;
+                const B  = (v0 + zeta * wn * x0) / wd;
+
+                // Velocity envelope coefficients:
+                //   ẋ = e^(-ζωn·t) · [(-ζωn·A + wd·B)·cos(wd·t) + (-ζωn·B - wd·A)·sin(wd·t)]
+                const Av = -zeta * wn * A + wd * B;
+                const Bv = -zeta * wn * B - wd * A;
+
+                for (let t = 0; t <= duration; t += step) {
+                    const env = Math.exp(-zeta * wn * t);
+                    disp.push({ x: t, y: env * (A * Math.cos(wd * t) + B * Math.sin(wd * t)) });
+                    vel .push({ x: t, y: env * (Av * Math.cos(wd * t) + Bv * Math.sin(wd * t)) });
+                }
+            } else {
+                // Overdamped
+                const r1 = -zeta * wn + wn * Math.sqrt(zeta * zeta - 1);
+                const r2 = -zeta * wn - wn * Math.sqrt(zeta * zeta - 1);
+                const C2 = (v0 - r1 * x0) / (r2 - r1);
+                const C1 = x0 - C2;
+
+                for (let t = 0; t <= duration; t += step) {
+                    disp.push({ x: t, y: C1 * Math.exp(r1 * t) + C2 * Math.exp(r2 * t) });
+                    vel .push({ x: t, y: C1 * r1 * Math.exp(r1 * t) + C2 * r2 * Math.exp(r2 * t) });
+                }
+            }
+        } else {
+            // ── Forced Harmonic Excitation ────────────────────────
+            const w    = forceFreq;
+            const denom  = Math.pow(K - M * w * w, 2) + Math.pow(C * w, 2);
+            const X_cos  = (K - M * w * w) * forceAmplitude / denom; // cosine amplitude
+            const X_sin  = (C * w)          * forceAmplitude / denom; // sine   amplitude
+
+            // Particular velocity amplitudes (ẋ_part = -X_cos·w·sin + X_sin·w·cos)
+            const XV_cos =  X_sin * w;   // cosine coefficient of ẋ_part
+            const XV_sin = -X_cos * w;   // sine   coefficient of ẋ_part
+
+            if (zeta < 1) {
+                const wd = wn * Math.sqrt(1 - zeta * zeta);
+
+                // Homogeneous constants from zero ICs
+                const x0_part = X_cos;
+                const v0_part = XV_cos; // ẋ_part(0) = X_sin·w·1 + (-X_cos·w)·0 = XV_cos·1
+                const A_hom   = -x0_part;
+                const B_hom   = (-v0_part - zeta * wn * A_hom) / wd;
+
+                // Velocity homogeneous envelope coefficients
+                const Av_hom = -zeta * wn * A_hom + wd * B_hom;
+                const Bv_hom = -zeta * wn * B_hom - wd * A_hom;
+
+                for (let t = 0; t <= duration; t += step) {
+                    const env   = Math.exp(-zeta * wn * t);
+                    const cosWt = Math.cos(w * t);
+                    const sinWt = Math.sin(w * t);
+                    const cosWd = Math.cos(wd * t);
+                    const sinWd = Math.sin(wd * t);
+
+                    const x_hom  = env * (A_hom  * cosWd + B_hom  * sinWd);
+                    const x_part =        X_cos  * cosWt + X_sin  * sinWt;
+                    disp.push({ x: t, y: x_part + x_hom });
+
+                    const xdot_hom  = env * (Av_hom * cosWd + Bv_hom * sinWd);
+                    const xdot_part =        XV_cos * cosWt + XV_sin * sinWt;
+                    vel .push({ x: t, y: xdot_part + xdot_hom });
+                }
+            } else {
+                // Overdamped forced – homogeneous transients negligible; show particular only
+                for (let t = 0; t <= duration; t += step) {
+                    disp.push({ x: t, y: X_cos  * Math.cos(w * t) + X_sin  * Math.sin(w * t) });
+                    vel .push({ x: t, y: XV_cos * Math.cos(w * t) + XV_sin * Math.sin(w * t) });
+                }
+            }
+        }
+        return { disp, vel };
+    }
+
+    // ── Eigenvalue Calculator ─────────────────────────────────────
+    function calculatePoles(M, C, K) {
+        if (M <= 0.01) M = 0.01;
+        const disc = C * C - 4 * M * K;
+        if (disc >= 0) {
+            return [
+                { x: (-C + Math.sqrt(disc)) / (2 * M), y: 0 },
+                { x: (-C - Math.sqrt(disc)) / (2 * M), y: 0 }
+            ];
+        } else {
+            const realPart = -C / (2 * M);
+            const imagPart = Math.sqrt(-disc) / (2 * M);
+            return [
+                { x: realPart, y:  imagPart },
+                { x: realPart, y: -imagPart }
+            ];
+        }
+    }
+
+    // ── Main Update ───────────────────────────────────────────────
+    function updateSimulation() {
+        const gd = parseFloat(sGd.value);
+        const gv = parseFloat(sGv.value);
+        const ga = parseFloat(sGa.value);
+
+        vGd.innerText = gd.toLocaleString();
+        vGv.innerText = gv.toLocaleString();
+        vGa.innerText = ga;
+
+        const Meff = m + ga;
+        const Ceff = c + gv;
+        const Keff = k + gd;
+
+        // 1. Initial Condition Response
+        const icCL = solveSystem(Meff, Ceff, Keff, 0.1, 0, 0.15, 0.0002);
+        chartICDisp.data.datasets[1].data = icCL.disp;
+        chartICVel .data.datasets[1].data = icCL.vel;
+        chartICDisp.update();
+        chartICVel .update();
+
+        // 2. Eigenvalues
+        chartPoles.data.datasets[1].data = calculatePoles(Meff, Ceff, Keff);
+        chartPoles.update();
+
+        // 3. Forced Response
+        const fCL = solveSystem(Meff, Ceff, Keff, 0, 0, 0.77, 0.0005, 12000, w_res);
+        chartForcedDisp.data.datasets[1].data = fCL.disp;
+        chartForcedVel .data.datasets[1].data = fCL.vel;
+        chartForcedDisp.update();
+        chartForcedVel .update();
+    }
+
+    // ── Initialise ────────────────────────────────────────────────
+    window.onload = function () {
+        initCharts();
+
+        // Open-loop baselines (frozen references)
+        const icOL = solveSystem(m, c, k, 0.1, 0, 0.15, 0.0002);
+        chartICDisp.data.datasets[0].data = icOL.disp;
+        chartICVel .data.datasets[0].data = icOL.vel;
+
+        chartPoles.data.datasets[0].data = calculatePoles(m, c, k);
+
+        const fOL = solveSystem(m, c, k, 0, 0, 0.77, 0.0005, 12000, w_res);
+        chartForcedDisp.data.datasets[0].data = fOL.disp;
+        chartForcedVel .data.datasets[0].data = fOL.vel;
+
+        sGd.addEventListener('input', updateSimulation);
+        sGv.addEventListener('input', updateSimulation);
+        sGa.addEventListener('input', updateSimulation);
+
+        updateSimulation();
+    };
+</script>
+
+</body>
+</html>
